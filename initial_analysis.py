@@ -13,14 +13,15 @@ import numpy as np
 from scipy.stats import median_abs_deviation
 import scanpy.external as sce
 import itertools
-import string
 from gtfparse import read_gtf
 import anndata
 from collections import defaultdict
 
 #we set hardcoded paths here
 gtf_fn = "data/genes.gtf"
-input_data = "data/single_cell_files/cellranger_output"
+# input_data = "data/single_cell_files/cellranger_output"
+input_data = "data/single_cell_files/soupx"
+
 output_data = "data/single_cell_files/scanpy_files"
 os.makedirs(output_data, exist_ok=True)
 adata_name = "venous_ec"
@@ -69,36 +70,87 @@ gene_dict = {
 }
 #leiden dictionary to assign cell types
 leiden_ct_dict = {
-    "0": "DC",
-    "1": "DC",
-    "2": "DC",
-    "3": "DC",
-    "4": "DC",
-    "5": "DC",
-    "6": "DC",
-    "7": "DC",
-    "8": "DC",
-    "9": "DC",
-    "10": "DC",
-    "11": "T cell",
-    "12": "Alveolar macrophage",
-    "13": "Monocyte",
-    "14": "B cell",
-    "15": "DC/T doublet",
-    "16": "Neutrophil",
-    "17": "Endothelial",
+    "0": "doublet_AT1_cap",
+    "1": "Alveolar macrophage",
+    "2": "AT2",
+    "3": "Cap1",
+    "4": "Club",
+    "5": "Venous EC",
+    "6": "AT1_AT2",
+    "7": "AT1",
+    "8": "Proliferating EC",
+    "9": "Ciliated",
+    "10": "Vascular smooth muscle",
+    "11": "Arterial EC",
+    "12": "Cap1_Cap2",
+    "13": "Lymphatic EC",
+    "14": "doublet_AT2_Cap ",
+    "15": "Cap2",
+    "16": "Alveolar fibroblast",
+    "17": "Alveolar macrophage",
+    "18": "doublet_Cap_Mese ",
+    "19": "doublet_Goblet_cap",
+    "20": "low-quality EC",
+    "21": "B cell",
+    "22": "low-quality_Cap1",
+    "23": "Myofibroblast",
+    "24": "Airway smooth muscle",
+    "25": "Mesothelial",
+    "26": "Proliferating Club",
+    "27": "Alveolar macrophage",
+    "28": "low-quality_AT2",
+    "29": "Monocyte",
+    "30": "T cell",
+    "31": "Pericyte",
+    "32": "doublet_cap_mac",
+    "33": "Basophil",
+    "34": "Systemic Venous EC",
+    "35": "low-quality_AT1",
+    "36": "Vascular smooth muscle",
+    "37": "low-quality_Ciliated",
+
 }
+def read_adata(folder):
+    adata = sc.read_mtx(f'{folder}/matrix.mtx').T
+    features = pd.read_csv(f'{folder}/genes.tsv',
+                          sep = '\t',
+                          header = None)
+    bc = pd.read_csv(f'{folder}/barcodes.tsv',
+                          sep = '\t',
+                    header = None)
+    features.rename(columns={0:'gene_id',
+                            1: 'gene_symbol',
+                            2: 'category'},
+                   inplace = True)
+
+    adata.var = features
+    adata.obs_names = bc[0]
+    adata.var_names = adata.var['gene_id'].values
+    return adata
 if __name__ == "__main__":
     ## Here we are reading in cellranger outputs and concatentating together, adding some metadata for both cells in obs and genes in var
     runs = os.listdir(input_data)
     adatas = []
-    gtf = read_gtf(gtf_fn)
+    gtf = read_gtf(gtf_fn).to_pandas()
+    print(gtf.columns)
+    gene_name_dict = pd.Series(gtf['gene_name'].values, index=gtf['gene_id']).to_dict()
+    for x in gene_name_dict.keys():
+        if gene_name_dict[x] == '':
+            gene_name_dict[x] = x
+    ambient_dict = {}
     for run in runs:
         print(run)
         if run == "Undetermined":
             continue
-        folder = f"{input_data}/{run}/outs"
-        adata = sc.read_10x_h5(f"{folder}/filtered_feature_bc_matrix.h5")
+
+        # folder = f"{input_data}/{run}/outs"
+        # adata = sc.read_10x_h5(f"{folder}/filtered_feature_bc_matrix.h5")
+        folder = f"{input_data}/{run}"
+        ambient_df = pd.read_csv(f'{figures}/soupx/{run}_ambient_genes.txt', sep='\t', header=0, index_col=0)
+        ambient_df.index = [gene_name_dict[x] for x in ambient_df.index]
+        ambient_dict[run] = ambient_df
+        adata = read_adata(folder)
+        adata.var_names = [gene_name_dict[x] for x in adata.var_names]
         adata.var_names_make_unique()
         adata.obs_names = run + "_" + adata.obs_names
         sort, treat, time = run.split("_")
@@ -109,6 +161,8 @@ if __name__ == "__main__":
         adatas.append(adata.copy())
     adata = anndata.concat(adatas)
     adata.obs["Treatment"].replace({"H": "Hyperoxia", "N": "Normoxia"}, inplace=True)
+    adata.var['ambient_rna_est_contamination'] = pd.concat( {key: df['est'] for key, df in ambient_dict.items()}).groupby(level=1).mean()
+    adata.var['ambient_rna_total_counts'] = pd.concat({key: df['counts'] for key, df in ambient_dict.items()}).groupby(level=1).sum()
     for column in ["gene_id", "gene_type", "seqname", "transcript_name", "protein_id"]:
         temp_dict = pd.Series(gtf[column], index=gtf["gene_name"]).to_dict()
         temp_dict.update(pd.Series(gtf[column], index=gtf["gene_id"]).to_dict())
@@ -225,7 +279,7 @@ if __name__ == "__main__":
     )
     print(f"Median UMIS: {adata.obs['total_umis'].median()}")
     print(f"Median Genes: {adata.obs['n_genes_by_umis'].median()}")
-    # run embedding and clustering below
+    # # run embedding and clustering below
     figures_embed = f"{figures}/initial_embedding"
     os.makedirs(figures_embed, exist_ok=True)
     sc.settings.figdir = figures_embed
@@ -235,11 +289,12 @@ if __name__ == "__main__":
     sc.pp.log1p(adata)
     adata.layers["log1p"] = adata.X.copy()
     sc.pp.highly_variable_genes(adata, batch_key="Library")
-    sc.pp.pca(adata, use_highly_variable=True)
+    sc.pp.pca(adata, mask_var="highly_variable")
     # sce.pp.harmony_integrate(adata, 'Library',adjusted_basis='X_pca')
     sc.pp.neighbors(adata, use_rep="X_pca")
     sc.tl.leiden(adata, key_added="leiden", resolution=0.5)
     sc.tl.umap(adata, min_dist=0.5)
+
     genes = ['Col1a1', 'Cdh5', 'Ptprc', 'Epcam', 'leiden']
     genedf = sc.get.obs_df(adata, keys=genes)
     grouped = genedf.groupby("leiden")
@@ -256,8 +311,12 @@ if __name__ == "__main__":
             lineage_dict[cluster] = 'Epithelial'
         elif gene == 'Col1a1':
             lineage_dict[cluster] = 'Mesenchymal'
+    mean_t.to_csv(f'{figures_embed}/lineage_scores.csv')
+    adata.uns['leiden_lineage_expression'] = mean_t
     adata.obs['Lineage'] = [lineage_dict[x] for x in adata.obs['leiden']]
-    # adata.obs["celltype_rough"] = [leiden_ct_dict[x] for x in adata.obs["leiden"]]
+    adata.obs['Lineage'] = ['Epithelial' if x=='37' else y for x,y in zip(adata.obs['leiden'],adata.obs['Lineage'])]
+
+    adata.obs["celltype_rough"] = [leiden_ct_dict[x] for x in adata.obs["leiden"]]
     ## make plots below that are helpful for initial analysis
     sc.pl.dotplot(
         adata,
@@ -267,6 +326,11 @@ if __name__ == "__main__":
         show=False,
         save="useful_genes.png",
     )
+    adata.write(
+        f"{output_data}/{adata_name}_filtered_embed_w_doublets.gz.h5ad", compression="gzip"
+    )
+    # adata = sc.read(f"{output_data}/{adata_name}_filtered_embed_w_doublets.gz.h5ad")
+    adata =adata[(~adata.obs['celltype_rough'].str.startswith('doublet'))&(~adata.obs['celltype_rough'].str.startswith('low-quality'))]
     for color in [
         "log1p_total_umis",
         "log1p_n_genes_by_umis",
@@ -277,7 +341,7 @@ if __name__ == "__main__":
         "leiden",
         "doublet_score",
         "predicted_doublet",
-        # "celltype_rough",
+        "celltype_rough",
     ]:
         sc.pl.umap(adata, color=color, show=False, save=f"_{color}.png")
         sc.pl.pca(adata, color=color, show=False, save=f"_{color}.png")
@@ -325,7 +389,12 @@ if __name__ == "__main__":
                         adata.obs.groupby(subset[:-1])[subset[-1]].value_counts(
                             normalize=True
                         ).to_excel(writer, sheet_name=key[:31])
+    for lineage in adata.obs['Lineage'].cat.categories:
+        lin_adata = adata[adata.obs['Lineage']==lineage]
+        sc.tl.dendrogram(lin_adata,groupby='leiden')
+        sc.tl.rank_genes_groups(lin_adata, groupby='leiden')
+        sc.pl.rank_genes_groups_dotplot(lin_adata,save=f'{lineage}',show=False)
+        sc.pl.umap(lin_adata,color=['leiden','celltype_rough'],save=f'{lineage}',show=False)
     adata.write(
         f"{output_data}/{adata_name}_filtered_embed.gz.h5ad", compression="gzip"
     )
-    adata = sc.read(f"{output_data}/{adata_name}_filtered_embed.gz.h5ad")

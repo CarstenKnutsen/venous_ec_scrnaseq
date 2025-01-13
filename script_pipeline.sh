@@ -6,5 +6,8 @@ source /home/carsten/anaconda3/etc/profile.d/conda.sh
 #Rscript soupX.R
 conda activate dendritic
 python initial_analysis.py
+python cell_typing_by_lineage.py
+python deg.py
+python subcluster.py
 
 

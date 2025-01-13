@@ -51,6 +51,9 @@ for (fol in sub_fols)
          gg)
   adj.matrix  <- adjustCounts(soup.channel, roundToInt = T)
   DropletUtils:::write10xCounts(subdir_out, adj.matrix)
+  ambient_genes_df <- soup.channel$soupProfile[order(soup.channel$soupProfile$est, decreasing = TRUE), ]
+  output_file <-sprintf("%s/%s_ambient_genes.txt",figs_dir,fol)
+  write.table(ambient_genes_df, file = output_file, row.names = TRUE, col.names = NA, quote = FALSE, sep = "\t")
   dev.off()
 }
 
