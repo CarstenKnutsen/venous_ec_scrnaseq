@@ -21,7 +21,7 @@ from functions import plot_obs_abundance
 #we set hardcoded paths here
 data = "data/single_cell_files/scanpy_files"
 adata_name = "venous_ec"
-figures = "data/figures/cell_typing"
+figures = "data/figures/cell_typing_no_cc"
 os.makedirs(figures, exist_ok=True)
 sc.settings.figdir = figures
 sc.set_figure_params(dpi=300, format="png")
@@ -99,6 +99,7 @@ gene_dict = {
             "Epcam",
             "Ptprc",
             "Pecam1",
+            "Cdh5",
         ],
         "immune": [
             "Cd68",
@@ -162,76 +163,74 @@ gene_dict = {
 leiden_ct_dict = {
     "Mesenchymal": {
         "0": "Alveolar fibroblast",
-        "1": "Vascular smooth muscle",
+        "1": "Adventitial fibroblast",
         "2": "Mesothelial",
-        "3": "Proliferating vascular smooth muscle",
+        "3": "Airway smooth muscle",
         "4": "Pericyte",
-        "5": "Myofibroblast",
-        "6": "Vascular smooth muscle",
+        "5": "Vascular smooth muscle",
+        "6": "Myofibroblast",
         "7": "low-quality_Fibroblast",
-        "8": "Myofibroblast",
-        "9":"Adventitial fibroblast",
-        "10":  "Airway smooth muscle",
-        "11":"Schwann cell",
-        "12": "doublet_Epithelial",
-        "13":"low-quality Pericyte",
-        "14": "Striated muscle",
-        "15": "Proliferating Pericyte",
-        "16": "Mesothelial",
+        "8":"Adventitial fibroblast",
+        "9": "Schwann cell",
+        "10":  "Alveolar fibroblast",
+        "11":"doublet_Epithelial",
+        "12":"low-quality Pericyte",
+        "13":"Mesothelial",
+        "14": "Mesothelial",
+        "15": "Aberrant muscle",
+        "16":"Striated muscle",
         "17": "Dsc2_3+ cell",
-        "18": "Aberrant muscle",
+        "18": "Airway smooth muscle"
 
     },
     "Endothelial": {
         "0": "Cap1",
-        "1": "Proliferating Cap",
+        "1": "Cap1_Cap2",
         "2": "Venous EC",
-        "3": "Cap1_Cap2",
+        "3": "Arterial EC",
         "4": "Lymphatic EC",
         "5": "Cap2",
-        "6": "Arterial EC",
-        "7": "Proliferating Venous EC",
-        "8": "Arterial EC",
-        "9":  "Arterial EC",
-        "10": "Venous EC",
-        "11": "Proliferating Cap",
+        "6": "Venous EC",
+        "7": "Venous EC",
+        "8":  "Systemic Venous EC",
+        "9":  "doublet_Arterial EC",
+        "10": "low-quality_Arterial EC",
+        "11": "low-quality_Lymphatic EC",
         "12": "Venous EC",
-        "13": "Systemic Venous EC",
-        "14": "Lymphatic EC",
-        "15": "Venous EC",
     },
     "Immune": {
         "0": "Alveolar macrophage",
         "1": "Alveolar macrophage",
-        "2": "Proliferating Alveolar macrophage",
-        "3": "Alveolar macrophage",
-        "4": "B cell",
-        "5": "Alveolar macrophage",
-        "6": "Monocyte",
-        "7": "Alveolar macrophage",
-        "8": "T cell",
-        "9":"Mast cell",
+        "2": "Alveolar macrophage",
+        "3": "B cell",
+        "4": "doublet_endothelial",
+        "5": "Monocyte",
+        "6": "Alveolar macrophage",
+        "7": "Mast cell",
+        "8": "Alveolar macrophage",
+        "9": "Interstitial macrophage",
         "10":  "Alveolar macrophage",
-        "11": "Interstitial macrophage",
-        "12": "B cell",
-        "13": "Alveolar macrophage",
-        "14": "Neutrophil",
-        "15": "Proliferating B cell",
-        "16": "c-Dendritic cell",
-        "17": "mig-Dendritic cell",
+        "11": "B cell",
+        "12":"Alveolar macrophage",
+        "13": "Basophil",
+        "14": "T cell",
+        "15": "c-Dendritic cell",
+        "16": "mig-Dendritic cell",
     },
     "Epithelial": {
-        "0": "AT2",
-        "1": "AT1_AT2",
-        "2": "AT1",
-        "3": "Ciliated",
+        "0": "AT1_AT2",
+        "1": "Ciliated",
+        "2": "AT2",
+        "3": "AT1",
         "4": "Ciliated",
-        "5": "Ciliated",
+        "5": "AT2",
         "6": "Club",
-        "7": "AT1",
-        "8": "Ciliated",
-        "9": "Proliferating AT1_AT2",
-        "10": "Neuroendocrine",
+        "7": "Goblet",
+        "8": "doublet_epithelial cell",
+        "9": "AT1",
+        "10": "Ciliated",
+        "11": "Neuroendocrine",
+        "12": "Ciliated",
 
     },
 
@@ -242,18 +241,31 @@ if __name__ == "__main__":
     )
     print(adata)
     adata.obs["Cell Subtype"] = pd.Series(index=adata.obs.index, data=None, dtype="str")
+    cell_cycle_genes = [x.strip() for x in open('data/outside_data/regev_lab_cell_cycle_genes.txt')]
+    cell_cycle_genes = [x.lower().capitalize() for x in cell_cycle_genes]
+    s_genes = cell_cycle_genes[:43]
+    g2m_genes = cell_cycle_genes[43:]
+    cell_cycle_genes = [x for x in cell_cycle_genes if x in adata.var_names]
+    sc.tl.score_genes_cell_cycle(adata, s_genes=s_genes, g2m_genes=g2m_genes)
+    sc.tl.score_genes(adata, ['Mki67', 'Top2a', 'Birc5', 'Hmgb2', 'Cenpf'], score_name='proliferation_score')
     for lineage in adata.obs['Lineage'].cat.categories:
-        figures_lin = f"data/figures/cell_typing/{lineage}"
+        figures_lin = f"{figures}/{lineage}"
         os.makedirs(figures_lin, exist_ok=True)
         sc.settings.figdir = figures_lin
         print(lineage)
         lin_adata = adata[adata.obs['Lineage'] == lineage]
+        sc.pp.regress_out(lin_adata, ['S_score', 'G2M_score'])
         sc.pp.highly_variable_genes(lin_adata, batch_key="Library")
         sc.pp.pca(lin_adata, mask_var="highly_variable")
         sc.pp.neighbors(lin_adata, use_rep="X_pca")
-        sc.tl.leiden(lin_adata, key_added=f"leiden_{lineage}", resolution=0.5)
-        sc.tl.rank_genes_groups(lin_adata, groupby=f"leiden_{lineage}",method='wilcoxon',pts=True)
+        if lineage =='Epithelial':
+            sc.tl.leiden(lin_adata, key_added=f"leiden_{lineage}", resolution=0.75) # need clustering for neuroendocrine to split
+        else:
+            sc.tl.leiden(lin_adata, key_added=f"leiden_{lineage}", resolution=0.5)
+        sc.tl.umap(lin_adata, min_dist=0.5)
         sc.tl.dendrogram(lin_adata,f"leiden_{lineage}")
+        lin_adata.X = lin_adata.layers['log1p'].copy()
+        sc.tl.rank_genes_groups(lin_adata, groupby=f"leiden_{lineage}",method='wilcoxon',pts=True)
         sc.pl.rank_genes_groups_dotplot(
             lin_adata,
             groupby=f"leiden_{lineage}",
@@ -268,7 +280,6 @@ if __name__ == "__main__":
                 df.set_index("names")
                 df["pct_difference"] = df["pct_nz_group"] - df["pct_nz_reference"]
                 df.to_excel(writer, sheet_name=f"{ct} v rest"[:31])
-        sc.tl.umap(lin_adata, min_dist=0.5)
         sc.pl.umap(lin_adata, color = ['leiden',f"leiden_{lineage}",'celltype_rough'],wspace=0.5,show=False,save='_pretrim_leiden')
         sc.pl.dotplot(lin_adata,gene_dict[lineage.lower()],groupby=f"leiden_{lineage}",show=False,save='useful_genes_leiden')
         sc.pl.umap(lin_adata, color = gene_dict[lineage.lower()],wspace=0.5,show=False,save='_pretrim_genes')
@@ -290,6 +301,7 @@ if __name__ == "__main__":
         sc.pl.dotplot(lin_adata,gene_dict[lineage.lower()],groupby="Cell Subtype",show=False,save='useful_genes_celltype')
         sc.pl.umap(lin_adata, color = gene_dict[lineage.lower()],wspace=0.5,show=False,save='_posttrim_genes')
         sc.pl.umap(lin_adata, color = ['log1p_total_umis','log1p_n_genes_by_umis'],wspace=0.5,show=False,save='_posttrim_qc')
+        sc.pl.umap(lin_adata, color = ['phase','proliferation_score'],wspace=0.5,show=False,save='_posttrim_cc')
         sc.tl.rank_genes_groups(lin_adata, groupby="Cell Subtype", method='wilcoxon', pts=True)
         sc.tl.dendrogram(lin_adata,"Cell Subtype")
         sc.pl.rank_genes_groups_dotplot(
@@ -360,6 +372,6 @@ if __name__ == "__main__":
                             normalize=True
                         ).to_excel(writer, sheet_name=key[:31])
     adata.write(
-        f"{data}/{adata_name}_celltyped.gz.h5ad", compression="gzip"
+        f"{data}/{adata_name}_celltyped_no_cc.gz.h5ad", compression="gzip"
     )
 

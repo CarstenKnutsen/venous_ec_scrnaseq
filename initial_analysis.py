@@ -74,40 +74,41 @@ leiden_ct_dict = {
     "1": "Alveolar macrophage",
     "2": "AT2",
     "3": "Cap1",
-    "4": "Club",
+    "4": "Ciliated",
     "5": "Venous EC",
     "6": "AT1_AT2",
     "7": "AT1",
     "8": "Proliferating EC",
     "9": "Ciliated",
-    "10": "Vascular smooth muscle",
-    "11": "Arterial EC",
-    "12": "Cap1_Cap2",
+    "10":  "Arterial EC",
+    "11":"Cap1_Cap2",
+    "12": "Vascular smooth muscle",
     "13": "Lymphatic EC",
     "14": "doublet_AT2_Cap ",
     "15": "Cap2",
     "16": "Alveolar fibroblast",
-    "17": "Alveolar macrophage",
-    "18": "doublet_Cap_Mese ",
-    "19": "doublet_Goblet_cap",
+    "17": "doublet_Cap_Mese",
+    "18": "doublet_Goblet_cap",
+    "19": "Alveolar macrophage",
     "20": "low-quality EC",
     "21": "B cell",
     "22": "low-quality_Cap1",
     "23": "Myofibroblast",
-    "24": "Airway smooth muscle",
+    "24": "ASM",
     "25": "Mesothelial",
-    "26": "Proliferating Club",
-    "27": "Alveolar macrophage",
-    "28": "low-quality_AT2",
+    "26": "Misc. Mese",
+    "27": "Club",
+    "28": "Pericyte",
     "29": "Monocyte",
-    "30": "T cell",
-    "31": "Pericyte",
-    "32": "doublet_cap_mac",
-    "33": "Basophil",
-    "34": "Systemic Venous EC",
+    "30": "low-quality_AT2",
+    "31": "T cell",
+    "32": "Basophil",
+    "33": "Systemic Venous EC",
+    "34": "doublet_epi_mese",
     "35": "low-quality_AT1",
-    "36": "Vascular smooth muscle",
-    "37": "low-quality_Ciliated",
+    "36": "low-quality endo",
+    "37": "Proliferative AEC",
+    "38": "Epi unknown",
 
 }
 def read_adata(folder):
@@ -147,11 +148,8 @@ if __name__ == "__main__":
         # adata = sc.read_10x_h5(f"{folder}/filtered_feature_bc_matrix.h5")
         folder = f"{input_data}/{run}"
         ambient_df = pd.read_csv(f'{figures}/soupx/{run}_ambient_genes.txt', sep='\t', header=0, index_col=0)
-        ambient_df.index = [gene_name_dict[x] for x in ambient_df.index]
         ambient_dict[run] = ambient_df
         adata = read_adata(folder)
-        adata.var_names = [gene_name_dict[x] for x in adata.var_names]
-        adata.var_names_make_unique()
         adata.obs_names = run + "_" + adata.obs_names
         sort, treat, time = run.split("_")
         adata.obs["Library"] = run
@@ -163,11 +161,16 @@ if __name__ == "__main__":
     adata.obs["Treatment"].replace({"H": "Hyperoxia", "N": "Normoxia"}, inplace=True)
     adata.var['ambient_rna_est_contamination'] = pd.concat( {key: df['est'] for key, df in ambient_dict.items()}).groupby(level=1).mean()
     adata.var['ambient_rna_total_counts'] = pd.concat({key: df['counts'] for key, df in ambient_dict.items()}).groupby(level=1).sum()
-    for column in ["gene_id", "gene_type", "seqname", "transcript_name", "protein_id"]:
-        temp_dict = pd.Series(gtf[column], index=gtf["gene_name"]).to_dict()
-        temp_dict.update(pd.Series(gtf[column], index=gtf["gene_id"]).to_dict())
+    for key, df in ambient_dict.items():
+        adata.var[f'ambient_rna_est_contamination_{key}'] = df['est']
+        adata.var[f'ambient_rna_counts_{key}'] = df['counts']
+    for column in ["gene_name","gene_id", "gene_type", "seqname", "transcript_name", "protein_id"]:
+        temp_dict = pd.Series(gtf[column].values, index=gtf["gene_id"]).to_dict()
+        # temp_dict.update(pd.Series(gtf[column].values, index=gtf["gene_id"]).to_dict())
         temp_dict = defaultdict(lambda: None, temp_dict)
         adata.var[column] = [temp_dict[x] for x in adata.var.index]
+    adata.var_names = [gene_name_dict[x] for x in adata.var_names]
+    adata.var_names_make_unique()
     adata.var["mt"] = [True if x == "chrM" else False for x in adata.var["seqname"]]
     adata.var["ribo"] = adata.var_names.str.startswith(("Rps", "Rpl"))
     adata.var["hb"] = adata.var_names.str.contains(("^Hb[^(p)]"))
@@ -314,7 +317,7 @@ if __name__ == "__main__":
     mean_t.to_csv(f'{figures_embed}/lineage_scores.csv')
     adata.uns['leiden_lineage_expression'] = mean_t
     adata.obs['Lineage'] = [lineage_dict[x] for x in adata.obs['leiden']]
-    adata.obs['Lineage'] = ['Epithelial' if x=='37' else y for x,y in zip(adata.obs['leiden'],adata.obs['Lineage'])]
+    adata.obs['Lineage'] = ['Epithelial' if x in ['38'] else y for x,y in zip(adata.obs['leiden'],adata.obs['Lineage'])]
 
     adata.obs["celltype_rough"] = [leiden_ct_dict[x] for x in adata.obs["leiden"]]
     ## make plots below that are helpful for initial analysis

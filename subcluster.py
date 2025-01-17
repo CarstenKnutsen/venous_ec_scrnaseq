@@ -24,7 +24,7 @@ os.makedirs(output, exist_ok=True)
 sc.set_figure_params(dpi=300, dpi_save=300, format="png")
 sc.settings.figdir = output
 def subcluster_celltype(adata,celltype,output_fol):
-    output_ct = f'{output_fol}/subcluster/{celltype}'
+    output_ct = f'{output_fol}/subcluster_no_cc/{celltype}'
     os.makedirs(output_ct, exist_ok=True)
     sc.set_figure_params(dpi=300, format="png")
     sc.settings.figdir = output_ct
@@ -53,8 +53,8 @@ def subcluster_celltype(adata,celltype,output_fol):
         show=False,
         save=f"{celltype}_leiden_markers.png",
     )
-
-    for color in [f'leiden_{celltype}','Library','Treatment','Cell Subtype']:
+    lineage = lin_adata.obs['Lineage'].values[0]
+    for color in [f'leiden_{celltype}','Library','Treatment','Cell Subtype','doublet_score',f'leiden_{lineage}','proliferation_score','phase']:
         sc.pl.umap(lin_adata, color = color, show=False,save=color)
     with pd.ExcelWriter(
         f"{output_ct}/{celltype}_leiden_markers.xlsx", engine="xlsxwriter") as writer:
@@ -71,7 +71,7 @@ def subcluster_celltype(adata,celltype,output_fol):
     except:
         print(celltype)
 if __name__ == "__main__":
-    adata = sc.read(f"{data}/{adata_name}_celltyped.gz.h5ad")
+    adata = sc.read(f"{data}/{adata_name}_celltyped_no_cc.gz.h5ad")
     adata.uns['log1p']['base'] = None
     adata = adata[:,(adata.var['mt']==False)&(adata.var['ribo']==False)&(adata.var['hb']==False)]
 ## Subcluster each cell type
