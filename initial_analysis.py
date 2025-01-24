@@ -1,7 +1,7 @@
 """Goal:Initial analysis of venous ec scRNAseq, creating h5ad, filtering, and embedding
 Date:241231
 Author: Carsten Knutsen
-conda_env:dendritic
+conda_env:venous_ec
 """
 
 import pandas as pd

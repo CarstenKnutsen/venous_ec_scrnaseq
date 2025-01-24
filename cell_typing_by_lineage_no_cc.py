@@ -1,7 +1,7 @@
-"""Goal:Cell typing by lineage
-Date:241231
+"""Goal:Cell typing by lineage with the cell cycle genes regressed out
+Date:250115
 Author: Carsten Knutsen
-conda_env:dendritic
+conda_env:venous_ec
 """
 
 import pandas as pd

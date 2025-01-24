@@ -2,7 +2,7 @@
 Goal: Subcluster each cell type to see diversity
 Author:Carsten Knutsen
 Date:250103
-conda_env:dendritic
+conda_env:venous_ec
 """
 
 
@@ -37,6 +37,13 @@ def subcluster_celltype(adata,celltype,output_fol):
         sc.pp.highly_variable_genes(lin_adata
                             )
     sc.pp.pca(lin_adata, use_highly_variable=True)
+    sc.pl.pca_variance_ratio(lin_adata, show=False, save=True)
+    sc.pl.pca_loadings(
+        lin_adata,
+        components=",".join([str(x) for x in range(1, 10)]),
+        show=False,
+        save=True,
+    )
     sc.pp.neighbors(lin_adata, use_rep='X_pca')
     sc.tl.leiden(
         lin_adata,
@@ -54,7 +61,7 @@ def subcluster_celltype(adata,celltype,output_fol):
         save=f"{celltype}_leiden_markers.png",
     )
     lineage = lin_adata.obs['Lineage'].values[0]
-    for color in [f'leiden_{celltype}','Library','Treatment','Cell Subtype','doublet_score',f'leiden_{lineage}','proliferation_score','phase']:
+    for color in [f'leiden_{celltype}','Library','Treatment','Cell Subtype','doublet_score',f'leiden_{lineage}','proliferation_score','phase','log1p_n_genes_by_umis','log1p_total_umis']:
         sc.pl.umap(lin_adata, color = color, show=False,save=color)
     with pd.ExcelWriter(
         f"{output_ct}/{celltype}_leiden_markers.xlsx", engine="xlsxwriter") as writer:
@@ -63,7 +70,7 @@ def subcluster_celltype(adata,celltype,output_fol):
                 lin_adata, key="rank_genes_groups", group=ld
             )
             df.to_excel(writer, sheet_name=f"{ld} v rest"[:31])
-        lin_adata.write(f'{output_ct}/{celltype}_adata.gz.h5ad', compression='gzip')
+    lin_adata.write(f'{output_ct}/{celltype}_adata.gz.h5ad', compression='gzip')
     plot_obs_abundance(lin_adata,f"leiden_{celltype}",hue="Treatment",ordered=True,as_percentage=True,save=f'{output_ct}/{celltype}_leiden.png',hue_order=['Normoxia','Hyperoxia'])
     try:
      compare_obs_values_within_groups_to_excel(lin_adata,f"leiden_{celltype}",

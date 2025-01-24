@@ -1,8 +1,8 @@
 """
-Goal: Subcluster each cell type to see diversity
+Goal: Run differential expression on Treatment for all cell types
 Author:Carsten Knutsen
 Date:250103
-conda_env:dendritic
+conda_env:venous_ec
 """
 
 
