@@ -304,7 +304,9 @@ def plot_obs_abundance(adata, obs_column, hue=None, groupby_column=None, figsize
             count_data['count'] *= 100
 
     # Order the bars if requested
-    if ordered:
+    if isinstance(ordered, list):
+        order=ordered
+    elif ordered:
         order = count_data.groupby(obs_column)['count'].sum().sort_values(ascending=False).index.tolist()
     else:
         order = adata.obs[obs_column].cat.categories.tolist() if pd.api.types.is_categorical_dtype(
@@ -389,3 +391,4 @@ def plot_obs_abundance(adata, obs_column, hue=None, groupby_column=None, figsize
     if save:
         plt.savefig(save, bbox_inches='tight')
         print(f"Plot saved to {save}")
+    plt.close()
