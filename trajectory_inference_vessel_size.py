@@ -1,4 +1,4 @@
-'''Goal:Trajectory inference for venous ec
+'''Goal:Trajectory inference for vessel size in endos and mural cells
 Date:250205
 Author: Carsten Knutsen
 conda_env:trajectory_inference
@@ -14,8 +14,7 @@ import palantir
 import cellrank as cr
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt #https://stackoverflow.com/questions/27147300/matplotlib-tcl-asyncdelete-async-handler-deleted-by-the-wrong-thread
-
+import matplotlib.pyplot as plt
 data = 'data/single_cell_files/scanpy_files'
 figures = 'data/figures/trajectory_inference'
 adata_name = "venous_ec"
@@ -26,18 +25,14 @@ scv.settings.figdir = figures
 sc.settings.autoshow = False
 scv.settings.autoshow = False
 comps = {
-    # 'vascular_endothelial':{'cts':['Arterial EC', 'Cap1', 'Cap1_Cap2', 'Cap2', 'Venous EC'],
-    #              'root_ct':'Cap1',
-    #              'terminal_cts':['Arterial EC','Cap2', 'Venous EC']
-    #              },
-    'capillaries':{'cts':['Cap1', 'Cap1_Cap2', 'Cap2'],
+    'vascular_endothelial':{'cts':['Arterial EC', 'Cap1','Venous EC'],
+                 'root_ct':'Cap1',
+                 'terminal_cts':['Arterial EC','Venous EC']
+                 },
+    'Mural':{'cts':['Pericyte', 'Vascular smooth muscle'],
                  'root_ct':'Cap1',
                  'terminal_cts':['Cap2']
                  },
-    # 'vessel_size':{'cts':['Arterial EC', 'Cap1', 'Venous EC'],
-    #              'root_ct':'Cap1',
-    #              'terminal_cts':['Arterial EC', 'Venous EC']
-    #              },
 
 }
 celltype = 'Cell Subtype_no_cc'
@@ -162,8 +157,6 @@ color_dict ={'Arterial EC': '#ffff00',
 
 if __name__ == '__main__':
     adata = sc.read(f'{data}/{adata_name}_celltyped_no_cc.gz.h5ad')
-    # adata.X= adata.layers['log1p_cc_regress'].copy()
-    # del adata.layers['log1p_cc_regress']
     adata_velocity = sc.read(f'{data}/{adata_name}_all_cells_velocyto.gz.h5ad')
     for comp,comp_dict in comps.items():
         figures_comp = f'{figures}/{comp}'
@@ -173,24 +166,12 @@ if __name__ == '__main__':
         root_ct = comp_dict['root_ct']
         terminal_cts = comp_dict['terminal_cts']
         adata_cts = adata[adata.obs[celltype].isin(cts)].copy()
-        adata_cts.obsm['X_umap'] = adata_cts.obsm['X_umap_Endothelial_no_cc'].copy()
-        adata_cts.X = adata_cts.layers['log1p'].copy()
-        sc.pp.regress_out(adata_cts, ['S_score', 'G2M_score'])
+        adata_cts.X = adata_cts.layers['log1p_cc_regress'].copy()
+        # sc.pp.regress_out(adata_cts, ['S_score', 'G2M_score'])
         new_colors = []
         for ct in adata_cts.obs[celltype].cat.categories:
             if ct == 'Proliferating EC':
                 ct = 'Proliferating Cap'
             new_colors.append(color_dict[ct])
-        adata_cts.uns[f'{celltype}_colors'] = new_colors
-        if comp =='capillaries':
-            umap=True
-        else:
-            umap=False
-        run_velocity_routine(adata_cts,adata_velocity,celltype,root_ct,terminal_cts,figures_comp,f'{data}/{adata_name}_{comp}_velocity.gz.h5ad',umap=umap)
-        for treat in adata_cts.obs['Treatment'].cat.categories:
-            figures_treat= f'{figures_comp}/{treat}'
-            os.makedirs(figures_treat, exist_ok=True)
-            treat_adata = adata_cts[adata_cts.obs['Treatment']==treat]
-            # treat_adata.X = treat_adata.layers['log1p'].copy()
-            run_velocity_routine(treat_adata, adata_velocity, celltype, root_ct,terminal_cts, figures_treat,f'{data}/{adata_name}_{comp}_velocity_{treat}.gz.h5ad', umap=True)
-
+        adata_cts.uns[f'{celltype}_colors'] = new_color
+        run_velocity_routine(adata_cts,adata_velocity,celltype,root_ct,terminal_cts,figures_comp,f'{data}/{adata_name}_{comp}_velocity.gz.h5ad',umap=True)

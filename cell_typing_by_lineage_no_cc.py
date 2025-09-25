@@ -17,6 +17,7 @@ import string
 from gtfparse import read_gtf
 import anndata
 from collections import defaultdict
+from scipy import sparse
 from functions import plot_obs_abundance
 #we set hardcoded paths here
 data = "data/single_cell_files/scanpy_files"
@@ -57,7 +58,7 @@ gene_dict = {
             'Lgals3',
             # 'Tubb3',
             # 'Aqp3',
-'Ttn','Ryr2','Myh6','Tbx20','Ldb3','Eya4','Rbm20','Neb','Itm2a','Mybpc1',
+'Ttn','Ryr2','Myh6','Tbx20','Ldb3','Eya4','Rbm20','Neb','Itm2a','Mybpc1','Eya4',
             'Col1a1',
             "Epcam",
             "Ptprc",
@@ -162,68 +163,81 @@ gene_dict = {
     }
 leiden_ct_dict = {
     "Mesenchymal": {
-        "0": "Vascular smooth muscle",
-        "1": "Alveolar fibroblast",
-        "2": "Mesothelial",
-        "3": "Pericyte",
-        "4": "Myofibroblast",
-        "5": "Vascular smooth muscle",
-        "6": "Myofibroblast",
+        "0": "Alveolar fibroblast",
+        "1": "Vascular smooth muscle",
+        "2": "Myofibroblast",
+        "3": "Mesothelial",
+        "4": "Vascular smooth muscle",
+        "5": "Pericyte",
+        "6": "Vascular smooth muscle",
         "7": "Adventitial fibroblast",
         "8":"Airway smooth muscle",
         "9": "Schwann cell",
-        "10":  "Mesothelial",
+        "10": "Striated muscle",
         "11":"Mesothelial",
-        "12":"Eya4+ cell",
-        "13":"Striated muscle",
-        "14": "Dsc2_3+ cell",
-        "15": "Alveolar fibroblast",
-        "16":"Abberant muscle",
+        "12":"Dsc2_3+ cell",
+        # "13":"Alveolar fibroblast",
+        # "14": "Alveolar fibroblast",
+        # "15": "Alveolar fibroblast",
+        # "16":"Abberant muscle",
+        # "17": "Eya4+ cell",
+        # "18": "Striated muscle",
+        # "19": "Dsc2_3+ cell",
+        # "20": "Alveolar fibroblast",
     },
     "Endothelial": {
         "0": "Cap1",
-        "1": "Venous EC",
-        "2": "Cap1_Cap2",
+        "1": "Cap1_Cap2",
+        "2": "Venous EC",
         "3": "Lymphatic EC",
         "4": "Arterial EC",
         "5": "Cap2",
-        "6": "Venous EC",
-        "7": "Arterial EC",
-        "8":  "Systemic Venous EC",
-        "9":  "doublet_Arterial EC",
+        "6": "Arterial EC",
+        "7": "Venous EC",
+        "8":  "Venous EC",
+        "9":  "Systemic Venous EC",
         "10": "low-quality_Lymphatic EC",
-        "11": "low-quality_Arterial EC",
+        # "11": "low-quality_Arterial EC",
+        # "12": "low-quality_Lymphatic EC",
+        # "13": "low-quality_Arterial EC",
+        # "14": "low-quality_Lymphatic EC",
+        # "15": "low-quality_Arterial EC",
     },
     "Immune": {
         "0": "Alveolar macrophage",
         "1": "Alveolar macrophage",
         "2": "Alveolar macrophage",
-        "3": "B cell",
-        "4": "doublet_Myeloid",
+        "3": "Alveolar macrophage",
+        "4": "B cell",
         "5": "Monocyte",
-        "6": "Alveolar macrophage",
+        "6": "doublet endothelial",
         "7": "Mast cell",
         "8": "Alveolar macrophage",
-        "9": "Interstitial macrophage",
-        "10": "B cell",
-        "11":  "T cell",
-        "12":"Alveolar macrophage",
+        "9": "low-quality Alveolar macrophage",
+        "10":"Alveolar macrophage",
+        "11":  "Interstitial macrophage",
+        "12": "B cell",
         "13": "T cell",
-        "14": "Neutrophil",
-        "15": "c-Dendritic cell",
-        "16": "mig-Dendritic cell",
+        "14": "Alveolar macrophage",
+        "15":"T cell",
+        "16": "Neutrophil",
+        "17": "c-Dendritic cell",
+        "18": "mig-Dendritic cell",
+
     },
     "Epithelial": {
-        "0": "AT2",
-        "1": "AT1_AT2",
-        "2": "Ciliated",
-        "3": "AT1",
+        "0": "AT1_AT2",
+        "1": "AT2",
+        "2": "AT1",
+        "3": "Ciliated",
         "4": "Ciliated",
-        "5": "Club",
+        "5": "AT2",
         "6": "Ciliated",
-        "7": "AT1_AT2",
-        "8": "AT1",
-        "9": "doublet",
+        "7": "Club",
+        "8": "Ciliated",
+        "9": "AT1",
+        "10": "Ciliated",
+        "11": "Neuroendocrine",
     },
 
 }
@@ -232,22 +246,29 @@ if __name__ == "__main__":
         f"{data}/{adata_name}_celltyped.gz.h5ad", compression="gzip",
     )
     print(adata)
-    adata.obs["Cell Subtype_no_cc"] = pd.Series(index=adata.obs.index, data=None, dtype="str")
     cell_cycle_genes = [x.strip() for x in open('data/outside_data/regev_lab_cell_cycle_genes.txt')]
     cell_cycle_genes = [x.lower().capitalize() for x in cell_cycle_genes]
     s_genes = cell_cycle_genes[:43]
     g2m_genes = cell_cycle_genes[43:]
     cell_cycle_genes = [x for x in cell_cycle_genes if x in adata.var_names]
     sc.tl.score_genes_cell_cycle(adata, s_genes=s_genes, g2m_genes=g2m_genes)
-    sc.tl.score_genes(adata, ['Mki67', 'Top2a', 'Birc5', 'Hmgb2', 'Cenpf'], score_name='proliferation_score')
-    adata.layers['log1p_cc_regress'] = adata.X.copy()
+    sc.tl.score_genes(adata, cell_cycle_genes, score_name='proliferation_score')
+    sc.pp.regress_out(adata, ['S_score', 'G2M_score'])
+    adata.layers['log1p_cc_regress'] = sparse.csr_matrix(adata.X).copy()
+    adata.X = adata.layers['log1p'].copy()
+    # adata.write(
+    #     f"{data}/{adata_name}_celltyped_log1p_regress.gz.h5ad", compression="gzip"
+    # )
+    # adata = sc.read( f"{data}/{adata_name}_celltyped_log1p_regress.gz.h5ad")
+    adata.X = adata.layers['log1p_cc_regress'].copy()
+    del adata.layers['']
+    adata.obs["Cell Subtype_no_cc"] = pd.Series(index=adata.obs.index, data=None, dtype="str")
     for lineage in adata.obs['Lineage'].cat.categories:
         figures_lin = f"{figures}/{lineage}"
         os.makedirs(figures_lin, exist_ok=True)
         sc.settings.figdir = figures_lin
         print(lineage)
         lin_adata = adata[adata.obs['Lineage'] == lineage]
-        sc.pp.regress_out(lin_adata, ['S_score', 'G2M_score'])
         sc.pp.highly_variable_genes(lin_adata, batch_key="Library")
         sc.pp.pca(lin_adata, mask_var="highly_variable")
         sc.pp.neighbors(lin_adata, use_rep="X_pca")
@@ -286,8 +307,8 @@ if __name__ == "__main__":
         lin_adata.obs["Cell Subtype_no_cc"] = [leiden_ct_dict[lineage][x] for x in
                                                lin_adata.obs[f"leiden_{lineage}_no_cc"]]
         lin_adata = lin_adata[(~lin_adata.obs["Cell Subtype_no_cc"].str.startswith('doublet')) & (~lin_adata.obs["Cell Subtype_no_cc"].str.startswith('low-quality'))]
-
-        sc.tl.umap(lin_adata, min_dist=0.5)
+        umap_dist = {'Endothelial':1,'Epithelial':1,'Mesenchymal':1,'Immune':1}
+        sc.tl.umap(lin_adata, min_dist=umap_dist[lineage])
         sc.pl.umap(lin_adata, color=['Treatment', 'Library', 'leiden', f"leiden_{lineage}", f"leiden_{lineage}_no_cc",
                                      'celltype_rough', "Cell Subtype", "Cell Subtype_no_cc"], wspace=0.5, show=False,
                    save='_posttrim_leiden')
@@ -346,7 +367,10 @@ if __name__ == "__main__":
     for lin in adata.obs['Lineage'].cat.categories:
         for ct in sorted(adata[adata.obs['Lineage'] == lin].obs['Cell Subtype_no_cc'].unique()):
             ct_order.append(ct)
-    sc.tl.umap(adata, min_dist=0.5)
+    sc.pp.highly_variable_genes(adata, batch_key="Library")
+    sc.pp.pca(adata, mask_var="highly_variable")
+    sc.pp.neighbors(adata, use_rep="X_pca")
+    sc.tl.umap(adata, min_dist=0.75)
     adata.obs['Cell Subtype_no_cc'] = pd.Categorical(adata.obs['Cell Subtype_no_cc'], categories=ct_order)
     sc.settings.figdir = figures
     sc.pl.umap(adata, color='Cell Subtype_no_cc', save='Cell_Subtype', show=False)
@@ -387,6 +411,8 @@ if __name__ == "__main__":
         except:
             new_colors.append(extra_colors.pop(0))
     adata.uns['Cell Subtype_no_cc_colors'] = new_colors
+    adata.layers['log1p_cc_regress'] = sparse.csr_matrix(adata.X).copy()
+    adata.X = adata.layers['log1p']
     adata.write(
         f"{data}/{adata_name}_celltyped_no_cc.gz.h5ad", compression="gzip"
     )
