@@ -7,6 +7,13 @@ import shutil
 import subprocess as sp
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy.stats import spearmanr
+from matplotlib_venn import venn2,venn3
+import palantir
+import cellrank as cr
+from sklearn.preprocessing import MinMaxScaler
+import matplotlib.lines as mlines
+
 
 def read_adata(folder):
     adata = sc.read_mtx(f'{folder}/matrix.mtx').T
@@ -392,3 +399,385 @@ def plot_obs_abundance(adata, obs_column, hue=None, groupby_column=None, figsize
         plt.savefig(save, bbox_inches='tight')
         print(f"Plot saved to {save}")
     plt.close()
+def palantir_psuedotime_routine_external_datasets(adata,start_and_end_states,celltype_obs='Cell Subtype',pca_key='X_pca_harmony',save_prefix=None,adata_name=None):
+    '''Runs Palantir pseudttime routine across Cap1 VEC and Art EC
+    adata: anndata object with just Cap1, arterial, and venous EC
+    start_and_end_states: used to define root and terminus for pseudotime branches dictionary defined:
+    {'root_ct':('Cap1',umap_axis,'min'),
+    'terminal_cts' :{'Arterial EC':(0,'max'),
+     'Venous_EC':(umap_axis,'max')
+     }
+      }
+    celltype_obs: obs column with cell type metadata
+    pca_key: key for palantir to use for pseudotimes
+    save_prefix: folder to save files out at
+    adata_name: name to save on plots
+    '''
+
+    root_ct,umap_axis,arg = start_and_end_states['root_ct']
+    terminal_cts = start_and_end_states['terminal_cts'].keys()
+    palantir.utils.run_diffusion_maps(adata,n_components=5,pca_key=pca_key,)
+    fig = palantir.plot.plot_diffusion_components(adata)[0]
+    fig.tight_layout()
+    fig.savefig(f'{save_prefix}/{adata_name}_palantir_diffusion_components.png')
+    plt.close()
+    palantir.utils.determine_multiscale_space(adata)
+    palantir.utils.run_magic_imputation(adata)
+
+    subset = adata[adata.obs[celltype_obs] == root_ct]
+    umap_values = subset.obsm['X_umap'][:, umap_axis]
+    if arg=='max':
+        idx = np.argmax(umap_values)
+    else:
+        idx = np.argmin(umap_values)
+    root_cell = subset.obs_names[idx]
+    terminal_states = []
+    for ct in terminal_cts:
+        umap_axis,arg = start_and_end_states['terminal_cts'][ct]
+        subset = adata[adata.obs[celltype_obs] == ct]
+        umap_values = subset.obsm['X_umap'][:, umap_axis]
+        if arg =='max':
+            idx = np.argmax(umap_values)
+        else:
+            idx = np.argmin(umap_values)
+        terminal_states.append(subset.obs_names[idx])
+
+    terminal_states = pd.Series(index=terminal_states, data=terminal_cts, dtype='object')
+
+    fig = palantir.plot.highlight_cells_on_umap(adata, [root_cell]+terminal_states)[0]
+    fig.tight_layout()
+    fig.savefig(f'{save_prefix}/{adata_name}_palantir_terminal_cells.png')
+    plt.close()
+
+    palantir.core.run_palantir(
+        adata, root_cell, num_waypoints=500, terminal_states=terminal_states
+    )
+
+    fig = palantir.plot.plot_palantir_results(adata, s=3)
+    fig.tight_layout()
+    fig.savefig(f'{save_prefix}/{adata_name}_palantir_results.png')
+    plt.close()
+    iroot = adata.obs.index.get_loc(root_cell)
+    adata.uns["iroot"] = iroot
+    try:
+        palantir.presults.select_branch_cells(adata, q=.01, eps=.01,pseudo_time_key='palantir_pseudotime')
+
+        fig = palantir.plot.plot_branch_selection(human_adata)
+        fig.tight_layout()
+        fig.savefig(f'{save_prefix}/{adata_name}_palantir_branch_selection.png')
+        plt.close()
+    except:
+        pass
+
+    sc.tl.dpt(adata)
+    sc.pl.umap(
+        adata,
+        color=["dpt_pseudotime", "palantir_pseudotime"],
+        color_map="viridis",
+        show=False,
+        save=f'{adata_name}_pseudotimes.png'
+    )
+
+    # palantir.presults.compute_gene_trends(
+    #     adata,
+    #     expression_key="MAGIC_imputed_data",
+    #     pseudo_time_key='dpt_pseudotime'
+    # )
+    #
+    # pk = cr.kernels.PseudotimeKernel(adata, time_key="palantir_pseudotime")
+    # pk.compute_transition_matrix()
+    # pk.plot_projection(basis="umap", color=celltype_obs, recompute=True,legend_loc='right margin',
+    #                          save=f'{save_prefix}/{adata_name}_palantir_pseudotime_stream.png')
+    # plt.close()
+    return
+
+def correlate_genes_with_pseudotime(adata, layer=None, method='pearson',pseudotime='palantir_pseudotime'):
+    """
+    Correlates all genes with pseudotime in an AnnData object.
+
+    Parameters:
+    - adata: AnnData object with pseudotime in `adata.obs['pseudotime']`
+    - layer: (Optional) Layer to use instead of adata.X (e.g., 'log1p', 'counts')
+    - method: Correlation method, either 'spearman' (default) or 'pearson'
+
+    Returns:
+    - pandas DataFrame with genes as index and columns: ['correlation', 'pval']
+    """
+    if pseudotime not in adata.obs:
+        raise ValueError("Pseudotime must be stored in adata.obs['pseudotime'].")
+
+    # Get expression matrix
+    X = adata.X if layer is None else adata.layers[layer]
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(X.toarray() if hasattr(X, "toarray") else X,
+                         index=adata.obs_names, columns=adata.var_names)
+
+    # Extract pseudotime
+    pseudotime = adata.obs[pseudotime]
+
+    # Run correlation
+    results = []
+    for gene in X.columns:
+        if method == 'spearman':
+            corr, pval = spearmanr(X[gene], pseudotime)
+        elif method == 'pearson':
+            corr, pval = X[gene].corr(pseudotime), None  # Pearson p-value not computed here
+        else:
+            raise ValueError("Method must be 'spearman' or 'pearson'.")
+        results.append((gene, corr, pval))
+
+    result_df = pd.DataFrame(results, columns=['gene', 'correlation', 'pval']).set_index('gene')
+    return result_df.sort_values('correlation', ascending=False)
+
+def normalize_dataframe(df):
+    # Initialize the MinMaxScaler
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    # Fit the scaler on the data and transform each column
+    df_normalized = pd.DataFrame(scaler.fit_transform(df), index=df.index, columns=df.columns)
+    return df_normalized
+
+def find_gene_overlap_in_pseudotimes(adata, celltype_obs='Cell Subtype', cts=['Arterial EC','Venous EC'], top_n_genes=50, pseudotime_key='palantir_pseudotime',size=15,
+                                     save_prefix=None, adata_name=None):
+    corr_dfs = {}
+    for ct in cts:
+        ct_adata = adata[adata.obs[celltype_obs] == ct]
+        print(ct)
+        print(ct_adata)
+        df = correlate_genes_with_pseudotime(ct_adata, method='pearson', pseudotime=pseudotime_key)
+        corr_dfs[ct] = df.dropna(how='all')
+    ct0_large_genes = corr_dfs[cts[0]].head(top_n_genes).index.tolist()
+    ct1_large_genes = corr_dfs[cts[1]].head(top_n_genes).index.tolist()
+    ct0_small_genes = corr_dfs[cts[0]].tail(top_n_genes).index.tolist()[::-1]
+    ct1_small_genes = corr_dfs[cts[1]].tail(top_n_genes).index.tolist()[::-1]
+
+    # Create the Venn diagram
+    venn = venn2([set(ct0_large_genes), set(ct1_large_genes)],
+                 set_labels=(cts[0], cts[1]),
+                 set_colors=('#4A90E2', '#E35D6A'),
+                 alpha=0.7)
+
+    # Optional: Customize font size
+    for text in venn.set_labels:
+        text.set_fontsize(12)
+    for text in venn.subset_labels:
+        if text:
+            text.set_fontsize(12)
+
+    # Show the plot
+    plt.title("Top 50 genes positively correlated with pseudotime")
+    plt.savefig(f'{save_prefix}/{adata_name}venn_diagram_large.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    # Create the Venn diagram
+    venn = venn2([set(ct0_small_genes), set(ct1_small_genes)],
+                 set_labels=(cts[0], cts[1]),
+                 set_colors=('#4A90E2', '#E35D6A'),
+                 alpha=0.7)
+
+    # Optional: Customize font size
+    for text in venn.set_labels:
+        text.set_fontsize(12)
+    for text in venn.subset_labels:
+        if text:
+            text.set_fontsize(12)
+
+    # Show the plot
+    plt.title("Top 50 genes positively correlated with pseudotime")
+    plt.savefig(f'{save_prefix}/{adata_name}venn_diagram_small.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+    large_genes = [x for x in ct0_large_genes if x in ct1_large_genes]
+    small_genes = [x for x in ct0_small_genes if x in ct1_small_genes]
+    sc.tl.score_genes(adata, large_genes, score_name='large_score')
+    sc.tl.score_genes(adata, small_genes, score_name='small_score')
+    adata.obs['Vessel size score'] = adata.obs['large_score'] - adata.obs['small_score']
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    adata.obs['Vessel size score'] = scaler.fit_transform(adata.obs[['Vessel size score']])
+    adata.obs['Vessel size category'] = pd.cut(adata.obs['Vessel size score'], bins=4,
+                                               labels=['capillary', 'small', 'medium', 'large'])
+    sc.pl.umap(adata, color=['Vessel size score'], cmap='Oranges', size=size, frameon=False,
+               save=f'_{adata_name}_vessel_size_score.png')
+    sc.pl.umap(adata, color=['Vessel size category'], cmap='viridis', size=size, frameon=False,
+               save=f'_{adata_name}_vessel_size_category.png')
+    sc.pl.umap(adata, color=large_genes + small_genes, cmap='viridis', hspace=0.5, save=f'_{adata_name}_allsize.png')
+    sc.pl.umap(adata, color=['Cell Subtype'], size=size, frameon=False,
+               save=f'_{adata_name}_cell_subtype.png')
+
+    adata.write(f'{save_prefix}/vessel_size.gz.h5ad', compression='gzip')
+    return
+
+def custom_dotplot(adata, genes, x_obs, y_obs, x_order=None, y_order=None,min_expr=0.1, cmap='RdBu_r',dot_max_size=300, pad=0.5,scale_by_gene=False, figsize=None,save=None, dpi=300,show_gridlines=False):
+    """
+    Custom dotplot that mimics scanpy's style but allows:
+    - Custom x/y groupings
+    - Split x-axis for condition + gene
+    - Color = average expression, Size = percent expressing
+    - Optional scaling and exporting
+    """
+    adata.obs[x_obs] = adata.obs[x_obs].astype('category')
+    adata.obs[y_obs] = adata.obs[y_obs].astype('category')
+
+    if x_order is None:
+        x_order = adata.obs[x_obs].cat.categories.tolist()
+    if y_order is None:
+        y_order = adata.obs[y_obs].cat.categories.tolist()
+
+    df = sc.get.obs_df(adata, keys=[x_obs, y_obs] + genes, layer=None)
+
+    results = []
+    for gene in genes:
+        for x_val in x_order:
+            for y_val in y_order:
+                group = df[(df[x_obs] == x_val) & (df[y_obs] == y_val)]
+                if group.shape[0] == 0:
+                    continue
+                expr = group[gene]
+                avg_expr = expr.mean()
+                prop_expr = (expr > min_expr).mean()
+                results.append({
+                    "gene": gene,
+                    "x_group": x_val,
+                    "y_group": y_val,
+                    "avg_expr": avg_expr,
+                    "prop_expr": prop_expr
+                })
+
+    plot_df = pd.DataFrame(results)
+    plot_df["x_label"] = plot_df["gene"] + "\n" + plot_df["x_group"]
+
+    # Scale avg_expr within gene
+    if scale_by_gene:
+        plot_df["scaled_expr"] = plot_df.groupby("gene")["avg_expr"].transform(
+            lambda x: (x - x.min()) / (x.max() - x.min() + 1e-8)
+        )
+        color_col = "scaled_expr"
+    else:
+        color_col = "avg_expr"
+
+    # X/Y axis label arrangement
+    x_labels = []
+    x_groups = []
+    genes_list = []
+    for gene in genes:
+        for x_val in x_order:
+            x_labels.append(f"{x_val}\n{gene}")
+            x_groups.append(x_val)
+            genes_list.append(gene)
+
+    y_labels = y_order
+
+    if figsize is None:
+        figsize = (len(x_labels) * 0.6 + 2, len(y_labels) * 0.6 + 2)
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Scatter plot
+    for _, row in plot_df.iterrows():
+        x = x_labels.index(f"{row['x_group']}\n{row['gene']}")
+        y = y_labels.index(row["y_group"])
+        ax.scatter(
+            x, y,
+            s=row["prop_expr"] * dot_max_size,
+            c=[row[color_col]],
+            cmap=cmap,
+            vmin=plot_df[color_col].min(),
+            vmax=plot_df[color_col].max(),
+            edgecolor='black',
+            linewidth=0.5
+        )
+
+    # Optional gridlines
+    if show_gridlines:
+        for y in range(len(y_labels)):
+            ax.axhline(y, color='lightgray', linestyle=':', linewidth=0.5)
+
+    # Vertical dashed lines between gene groups
+    for i in range(1, len(genes)):
+        xpos = i * len(x_order) - 0.5
+        ax.axvline(x=xpos, color='gray', linestyle='--', linewidth=1)
+
+    ax.set_xticks(range(len(x_labels)))
+    ax.set_xticklabels(x_groups, rotation=0, ha='center')
+    ax.set_yticks(range(len(y_labels)))
+    ax.set_yticklabels(y_labels)
+    ax.set_xlim(-pad, len(x_labels) - 1 + pad)
+    ax.set_ylim(-pad, len(y_labels) - 1 + pad)
+    ax.invert_yaxis()
+    ax.set_xlabel('')
+    ax.set_ylabel(y_obs)
+
+    # # Add gene names on second x-axis
+    ax_gene = ax.secondary_xaxis('top')
+    gene_locs = range(len(x_labels))
+    gene_locs = [(gene_locs[i] + gene_locs[i + 1]) / 2 for i in range(len(gene_locs) - 1)][::2]
+    ax_gene.set_xticks(gene_locs)
+    # if len(set(genes_list)) == 1:
+    #     ax_gene.set_xticklabels(genes_list[::2], rotation=0, ha='center')
+    # else:
+    ax_gene.set_xticklabels(genes_list[::2], rotation=0, ha='center')
+    # # ax_gene.set_xlabel("Gene")
+
+    # Colorbar
+    norm = plt.Normalize(plot_df[color_col].min(), plot_df[color_col].max())
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, location='right', pad=0.02)
+    cbar.set_label('Mean expression\nin group')
+
+    # Dot size legend
+    prop_vals = plot_df["prop_expr"]
+    # min_pct = int(np.floor(prop_vals.min() * 100 / 5) * 5)
+    # max_pct = int(np.ceil(prop_vals.max() * 100 / 5) * 5)
+    max_pct=100
+    min_pct=0
+    possible_labels = [i for i in range(min_pct, max_pct + 1) if i % 5 == 0]
+    num_labels = min(4, len(possible_labels))
+    legend_labels = np.linspace(min_pct, max_pct, num_labels, dtype=int)
+
+    handles = [
+        plt.scatter([], [], s=(pct / 100) * dot_max_size, c='gray',
+                    edgecolors='black', linewidth=0.5, label=f"{pct}%")
+        for pct in legend_labels
+    ]
+
+    # Move axis to left to make room for both legends
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.72, box.height])
+
+        # --- Dot size legend with clean rounding ---
+    min_pct_raw = 25#plot_df["prop_expr"].min() * 100
+    max_pct_raw = 100#plot_df["prop_expr"].max() * 100
+
+    min_pct = int(np.floor(min_pct_raw / 5) * 5)
+    max_pct = int(np.ceil(max_pct_raw / 5) * 5)
+
+    # Generate 4 nicely rounded ticks between min and max
+    if max_pct - min_pct < 15:
+        ticks = np.linspace(min_pct, max_pct, 4)
+    else:
+        ticks = np.round(np.linspace(min_pct, max_pct, 4))
+
+    ticks = np.clip(ticks, 0, 100).astype(int)
+
+    handles = [
+        plt.scatter([], [], s=(p / 100) * dot_max_size, c='gray', edgecolors='black')
+        for p in ticks
+    ]
+    labels = [f"{p}%" for p in ticks]
+
+    fig.legend(
+        handles,
+        labels,
+        title="Pct. Expressing",
+        loc='center right',
+        bbox_to_anchor=(1+(1/figsize[0]), 0.6),
+        frameon=True
+    )
+
+    fig.tight_layout()
+
+    if save:
+        plt.savefig(save, dpi=dpi, bbox_inches='tight')
+        print(f"Saved to {save}")
+    else:
+        plt.show()
